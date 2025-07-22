@@ -1,0 +1,46 @@
+{{define "base.tmpl"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>OppoCalypse</title>
+    <link rel="stylesheet" href="/static/css/dark.css">
+    <link rel="stylesheet" href="/static/css/navbar-fix.css">
+    <link rel="stylesheet" href="/static/css/table-fix.css">
+    <link rel="stylesheet" href="/static/css/filter.css">
+    
+</head>
+<body>
+    {{if not .hideNav}}
+    <nav class="nav">
+        <div class="nav-container">
+            <div class="nav-left">
+                <a href="/" class="logo">Home</a>
+                {{if .user}}
+                    <a href="/transactions/new">New Transaction</a>
+                {{end}}
+            </div>
+            <div class="nav-right">
+                {{if .user}}
+                    <form action="/logout" method="POST" class="logout-form">
+                        <button type="submit">Logout</button>
+                    </form>
+                {{else}}
+                    <a href="/login">Login</a>
+                {{end}}
+            </div>
+        </div>
+    </nav>
+    {{end}}
+    
+    {{if .error}}
+        <div class="error">{{.error}}</div>
+        {{end}}
+        {{block "content" .}}{{end}}
+</body>
+</html>
+{{end}}
