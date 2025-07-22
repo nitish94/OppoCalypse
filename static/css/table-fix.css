@@ -1,0 +1,32 @@
+/* Transaction table spacing fixes */
+.transactions-table {
+    overflow-x: auto;
+}
+
+table {
+    table-layout: auto;
+    width: 100%;
+}
+
+th, td {
+    padding: 1rem 1.2rem;
+    white-space: nowrap;
+}
+
+td.remarks {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+/* Make the remarks column flexible */
+th:nth-child(6), td:nth-child(6) {
+    width: 30%;
+    max-width: 300px;
+}
+
+/* Make the actions column narrower */
+th:last-child, td:last-child {
+    width: 100px;
+}

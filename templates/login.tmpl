@@ -1,0 +1,32 @@
+{{define "login.tmpl"}}
+{{template "base.tmpl" .}}
+<div class="auth-container">
+    <h1>Login</h1>
+    <form action="/login" method="POST" onsubmit="return validateForm()">
+        <div>
+            <label for="pin">Enter your 4-digit PIN</label>
+            <input type="password" id="pin" name="pin" maxlength="4" pattern="\d{4}" title="Please enter a 4-digit PIN" required autocomplete="off">
+        </div>
+        <button type="submit" class="btn">Sign In</button>
+    </form>
+    {{if .error}}
+        <div class="error">{{.error}}</div>
+    {{end}}
+</div>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const pinInput = document.getElementById('pin');
+        if (pinInput) {
+            pinInput.focus();
+        }
+    });
+    function validateForm() {
+        const pin = document.getElementById('pin').value;
+        if (!/^\d{4}$/.test(pin)) {
+            alert('Please enter a valid 4-digit PIN');
+            return false;
+        }
+        return true;
+    }
+</script>
+{{end}}
