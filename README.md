@@ -1,3 +1,6 @@
+
+
+
 # OppoCalypse - Personal Finance Manager
 
 OppoCalypse is a lightweight, self-hosted personal finance management application built with Go and MySQL. It helps you track income, expenses, and transfers across multiple accounts.
@@ -13,7 +16,12 @@ OppoCalypse is a lightweight, self-hosted personal finance management applicatio
 
 ## Screenshots
 
-(Add screenshots here)
+<img width="418" height="483" alt="image" src="https://github.com/user-attachments/assets/18d40f6e-4df7-48fa-8f95-62113b855646" /> 
+<img width="1285" height="627" alt="image" src="https://github.com/user-attachments/assets/171cb7fe-8f0a-4502-bcef-c06a78a3be30" />
+<img width="743" height="624" alt="image" src="https://github.com/user-attachments/assets/a82eda5a-19f4-447e-b9be-c632d57e2b2a" />
+<img width="699" height="565" alt="image" src="https://github.com/user-attachments/assets/8eb3028b-192d-4678-902f-fa91838d1458" />
+<img width="785" height="633" alt="image" src="https://github.com/user-attachments/assets/7137db95-91ca-4865-a1f4-a07ba64c9980" />
+
 
 ## Requirements
 
