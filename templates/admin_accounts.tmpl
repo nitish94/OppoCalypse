@@ -1,0 +1,44 @@
+{{define "admin_accounts.tmpl"}}
+{{template "base.tmpl" .}}
+<div class="container">
+    <h1>Account Management</h1>
+    <p>Assign users to accounts. Joint accounts allow multiple users to view transactions.</p>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Account Name</th>
+                <th>Type</th>
+                <th>Balance</th>
+                <th>Assigned Users</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .accounts}}
+            <tr>
+                <td>{{.Name}}</td>
+                <td>{{.Remarks}}</td>
+                <td>{{.CurrentBalance}}</td>
+                <td>
+                    {{range $.users}}
+                        {{if index (index $.selected $.ID) .ID}}{{.UserName}} {{end}}
+                    {{end}}
+                </td>
+                <td>
+                    <form action="/admin/accounts/assign" method="POST">
+                        <input type="hidden" name="account_id" value="{{.ID}}">
+                        <select name="user_ids[]" multiple style="width: 200px; height: 100px;">
+                            {{range $.users}}
+                            <option value="{{.ID}}" {{if index (index $.selected $.ID) .ID}}selected{{end}}>{{.UserName}}</option>
+                            {{end}}
+                        </select>
+                        <br>
+                        <button type="submit" class="btn">Update Assignment</button>
+                    </form>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}

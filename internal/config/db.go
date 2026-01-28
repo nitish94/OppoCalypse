@@ -3,14 +3,52 @@ package config
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	_ "github.com/go-sql-driver/mysql"
 )
 
 func ConnectDB() (*sql.DB, error) {
-	// Replace with your database credentials
-	dsn := "root:@tcp(127.0.0.1:3306)/finance?parseTime=true&multiStatements=true"
+	// Get database credentials from env
+	dbUser := os.Getenv("DB_USER")
+	if dbUser == "" {
+		dbUser = "root"
+	}
+	dbPassword := os.Getenv("DB_PASSWORD")
+	dbHost := os.Getenv("DB_HOST")
+	if dbHost == "" {
+		dbHost = "127.0.0.1"
+	}
+	dbPort := os.Getenv("DB_PORT")
+	if dbPort == "" {
+		dbPort = "3306"
+	}
+	dbName := os.Getenv("DB_NAME")
+	if dbName == "" {
+		dbName = "finance"
+	}
 
-	db, err := sql.Open("mysql", dsn)
+	// First, connect without specifying database to create it if needed
+	dsnNoDB := fmt.Sprintf("%s:%s@tcp(%s:%s)/?parseTime=true", dbUser, dbPassword, dbHost, dbPort)
+	db, err := sql.Open("mysql", dsnNoDB)
+	if err != nil {
+		return nil, fmt.Errorf("error opening database connection: %v", err)
+	}
+
+	if err = db.Ping(); err != nil {
+		return nil, fmt.Errorf("error pinging database server: %v", err)
+	}
+
+	// Create database if it doesn't exist
+	_, err = db.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", dbName))
+	if err != nil {
+		return nil, fmt.Errorf("error creating database: %v", err)
+	}
+
+	db.Close() // Close the connection without database
+
+	// Now connect to the specific database
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&multiStatements=true", dbUser, dbPassword, dbHost, dbPort, dbName)
+	db, err = sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("error opening database: %v", err)
 	}
@@ -35,10 +73,6 @@ func ConnectDB() (*sql.DB, error) {
 
 func initSchema(db *sql.DB) error {
 	schemaSQL := `
--- Create database if not exists
-CREATE DATABASE IF NOT EXISTS finance;
-USE finance;
-
 -- Tables
 CREATE TABLE IF NOT EXISTS account_types (
   id int(11) NOT NULL AUTO_INCREMENT,
@@ -153,6 +187,19 @@ CREATE TABLE IF NOT EXISTS budgets (
   CONSTRAINT budgets_ibfk_2 FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS user_accounts (
+  id int(11) NOT NULL AUTO_INCREMENT,
+  user_id int(11) NOT NULL,
+  account_id int(11) NOT NULL,
+  created_at datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (id),
+  UNIQUE KEY unique_user_account (user_id, account_id),
+  KEY user_id (user_id),
+  KEY account_id (account_id),
+  CONSTRAINT user_accounts_ibfk_1 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT user_accounts_ibfk_2 FOREIGN KEY (account_id) REFERENCES accounts (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Dummy Data
 INSERT IGNORE INTO users (id, user_name, pin, role, created_at, updated_at) VALUES
   (1, 'admin', '1234', 'admin', NOW(), NOW()),
@@ -197,6 +244,10 @@ INSERT IGNORE INTO transactions (id, type_id, amount, account_id, transaction_da
 INSERT IGNORE INTO budgets (id, user_id, category_id, amount, month, year, created_at, updated_at) VALUES
   (1, 1, 3, 500.00, MONTH(CURDATE()), YEAR(CURDATE()), NOW(), NOW()),
   (2, 1, 6, 1000.00, MONTH(CURDATE()), YEAR(CURDATE()), NOW(), NOW());
+
+INSERT IGNORE INTO user_accounts (user_id, account_id) VALUES
+  (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9), (1, 10), (1, 11), (1, 12), (1, 13), (1, 14), (1, 15),
+  (2, 1), (2, 2);
 `
 
 	_, err := db.Exec(schemaSQL)

@@ -46,5 +46,7 @@ func SetupRoutes(router *gin.Engine) {
 		admin.POST("/users/:id", handlers.UpdateUser)
 		admin.POST("/users/:id/delete", handlers.DeleteUser)
 		admin.POST("/users/:id/reset-pin", handlers.ResetUserPIN)
+	admin.GET("/accounts", handlers.ListAccounts)
+	admin.POST("/accounts/assign", handlers.AssignAccountUsers)
 	}
 }

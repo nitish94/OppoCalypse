@@ -6,18 +6,37 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Load .env file
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using default values")
+	}
+
+	// Get port from env, default to 3000
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3000"
+	}
+
+	// Get session secret from env
+	sessionSecret := os.Getenv("SESSION_SECRET")
+	if sessionSecret == "" {
+		sessionSecret = "default-secret-key-change-in-production"
+	}
+
 	// Initialize Gin router
 	router := gin.Default()
 
 	// Set up sessions with secure configuration
-	store := cookie.NewStore([]byte("replace-with-a-strong-secret-key-1234567890"))
+	store := cookie.NewStore([]byte(sessionSecret))
 
 	// Set session options
 	store.Options(sessions.Options{
@@ -45,7 +64,6 @@ func main() {
 	routes.SetupRoutes(router)
 
 	// Start the server
-	port := "5000"
 	fmt.Printf("Server is running on http://localhost:%s\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, router))
 }

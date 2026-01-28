@@ -194,10 +194,10 @@ func GetTransactions(c *gin.Context) {
 	if tableExists > 0 {
 		// Build the query with filters
 		query := `
-			SELECT t.id, t.type_id, t.amount, t.account_id, t.transaction_date, t.category_id, 
-			COALESCE(c.name, '') as category_name, t.remarks, t.created_at, 
-			a.name as account_name, 
-			from_a.name as from_account_name, 
+			SELECT t.id, t.type_id, t.amount, t.account_id, t.transaction_date, t.category_id,
+			COALESCE(c.name, '') as category_name, t.remarks, t.created_at,
+			a.name as account_name,
+			from_a.name as from_account_name,
 			to_a.name as to_account_name,
 			t.from_account_id, t.to_account_id
 			FROM transactions t
@@ -205,6 +205,7 @@ func GetTransactions(c *gin.Context) {
 			LEFT JOIN accounts a ON t.account_id = a.id
 			LEFT JOIN accounts from_a ON t.from_account_id = from_a.id
 			LEFT JOIN accounts to_a ON t.to_account_id = to_a.id
+			JOIN user_accounts ua ON ua.account_id = t.account_id AND ua.user_id = ?
 			WHERE 1=1`
 
 		// Add filters
@@ -236,6 +237,9 @@ func GetTransactions(c *gin.Context) {
 
 		// Add ordering
 		query += ` ORDER BY t.transaction_date DESC, t.created_at DESC`
+
+		// Add user_id to args
+		args = append([]interface{}{userID}, args...)
 
 		fmt.Printf("Executing query: %s with args: %v\n", query, args)
 
@@ -292,9 +296,12 @@ func GetTransactions(c *gin.Context) {
 		username = "User"
 	}
 
-	// Get accounts for filter dropdown
+	// Get accounts for filter dropdown (only accessible to user)
 	accounts := []models.Account{}
-	accountRows, err := db.Query("SELECT id, name FROM accounts ORDER BY name")
+	accountRows, err := db.Query(`
+		SELECT a.id, a.name FROM accounts a
+		JOIN user_accounts ua ON a.id = ua.account_id AND ua.user_id = ?
+		ORDER BY a.name`, userID)
 	if err == nil {
 		defer accountRows.Close()
 		for accountRows.Next() {
@@ -307,7 +314,10 @@ func GetTransactions(c *gin.Context) {
 
 	// Get available years for filter dropdown
 	years := []string{}
-	yearRows, err := db.Query("SELECT DISTINCT YEAR(transaction_date) FROM transactions ORDER BY YEAR(transaction_date) DESC")
+	yearRows, err := db.Query(`
+		SELECT DISTINCT YEAR(t.transaction_date) FROM transactions t
+		JOIN user_accounts ua ON ua.account_id = t.account_id AND ua.user_id = ?
+		ORDER BY YEAR(t.transaction_date) DESC`, userID)
 	if err == nil {
 		defer yearRows.Close()
 		for yearRows.Next() {
@@ -374,7 +384,9 @@ func NewTransactionForm(c *gin.Context) {
 	}
 
 	var accounts []models.Account
-	rows, err = db.Query("SELECT id, name FROM accounts")
+	rows, err = db.Query(`
+		SELECT a.id, a.name FROM accounts a
+		JOIN user_accounts ua ON a.id = ua.account_id AND ua.user_id = ?`, userID)
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
 			"error":   "Error querying accounts",
@@ -699,6 +711,131 @@ func ResetUserPIN(c *gin.Context) {
 	c.Redirect(http.StatusFound, "/admin/users")
 }
 
+// Admin Account Management
+
+// ListAccounts displays accounts and their assigned users
+func ListAccounts(c *gin.Context) {
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"error":   "Database connection error",
+			"hideNav": false,
+		})
+		return
+	}
+	defer db.Close()
+
+	// Get all accounts with their types
+	accounts := []models.Account{}
+	accountRows, err := db.Query(`
+		SELECT a.id, a.name, at.name as type_name, a.current_balance
+		FROM accounts a
+		JOIN account_types at ON a.account_type_id = at.id
+		ORDER BY a.name`)
+	if err == nil {
+		defer accountRows.Close()
+		for accountRows.Next() {
+			var acc models.Account
+			var typeName string
+			if err := accountRows.Scan(&acc.ID, &acc.Name, &typeName, &acc.CurrentBalance); err == nil {
+				acc.Remarks = &typeName // Reuse Remarks for type
+				accounts = append(accounts, acc)
+			}
+		}
+	}
+
+	// Get all users
+	users := []models.User{}
+	userRows, err := db.Query("SELECT id, user_name FROM users ORDER BY user_name")
+	if err == nil {
+		defer userRows.Close()
+		for userRows.Next() {
+			var u models.User
+			if err := userRows.Scan(&u.ID, &u.UserName); err == nil {
+				users = append(users, u)
+			}
+		}
+	}
+
+	// Get account-user assignments
+	selected := make(map[int]map[int]bool) // account_id -> user_id -> selected
+	assignRows, err := db.Query("SELECT account_id, user_id FROM user_accounts")
+	if err == nil {
+		defer assignRows.Close()
+		for assignRows.Next() {
+			var accountID, userID int
+			assignRows.Scan(&accountID, &userID)
+			if selected[accountID] == nil {
+				selected[accountID] = make(map[int]bool)
+			}
+			selected[accountID][userID] = true
+		}
+	}
+
+	c.HTML(http.StatusOK, "admin_accounts.tmpl", gin.H{
+		"title":     "Account Management - OppoCalypse",
+		"accounts":  accounts,
+		"users":     users,
+		"selected":  selected,
+		"hideNav":   false,
+	})
+}
+
+// AssignAccountUsers assigns users to accounts
+func AssignAccountUsers(c *gin.Context) {
+	accountIDStr := c.PostForm("account_id")
+	userIDs := c.PostFormArray("user_ids[]")
+
+	accountID, err := strconv.Atoi(accountIDStr)
+	if err != nil {
+		c.String(http.StatusBadRequest, "Invalid account ID")
+		return
+	}
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Database error")
+		return
+	}
+	defer db.Close()
+
+	// Start transaction
+	tx, err := db.Begin()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	// Remove existing assignments for this account
+	_, err = tx.Exec("DELETE FROM user_accounts WHERE account_id = ?", accountID)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error removing assignments")
+		return
+	}
+
+	// Add new assignments
+	for _, userIDStr := range userIDs {
+		userID, err := strconv.Atoi(userIDStr)
+		if err != nil {
+			continue
+		}
+		_, err = tx.Exec("INSERT INTO user_accounts (user_id, account_id) VALUES (?, ?)", userID, accountID)
+		if err != nil {
+			c.String(http.StatusInternalServerError, "Error assigning user")
+			return
+		}
+	}
+
+	// Commit
+	if err = tx.Commit(); err != nil {
+		c.String(http.StatusInternalServerError, "Commit error")
+		return
+	}
+
+	c.Redirect(http.StatusFound, "/admin/accounts")
+}
+
 // ShowExportPage displays the export form
 func ShowExportPage(c *gin.Context) {
 	session := sessions.Default(c)
@@ -718,9 +855,12 @@ func ShowExportPage(c *gin.Context) {
 	}
 	defer db.Close()
 
-	// Get accounts
+	// Get accounts (accessible to user)
 	accounts := []models.Account{}
-	accountRows, err := db.Query("SELECT id, name FROM accounts ORDER BY name")
+	accountRows, err := db.Query(`
+		SELECT a.id, a.name FROM accounts a
+		JOIN user_accounts ua ON a.id = ua.account_id AND ua.user_id = ?
+		ORDER BY a.name`, userID)
 	if err == nil {
 		defer accountRows.Close()
 		for accountRows.Next() {
@@ -775,10 +915,10 @@ func ExportTransactions(c *gin.Context) {
 	toDate := c.PostForm("to_date")
 
 	query := `
-		SELECT t.id, t.type_id, t.amount, t.account_id, t.transaction_date, t.category_id, 
-		COALESCE(c.name, '') as category_name, t.remarks, t.created_at, 
-		a.name as account_name, 
-		from_a.name as from_account_name, 
+		SELECT t.id, t.type_id, t.amount, t.account_id, t.transaction_date, t.category_id,
+		COALESCE(c.name, '') as category_name, t.remarks, t.created_at,
+		a.name as account_name,
+		from_a.name as from_account_name,
 		to_a.name as to_account_name,
 		t.from_account_id, t.to_account_id
 		FROM transactions t
@@ -786,6 +926,7 @@ func ExportTransactions(c *gin.Context) {
 		LEFT JOIN accounts a ON t.account_id = a.id
 		LEFT JOIN accounts from_a ON t.from_account_id = from_a.id
 		LEFT JOIN accounts to_a ON t.to_account_id = to_a.id
+		JOIN user_accounts ua ON ua.account_id = t.account_id AND ua.user_id = ?
 		WHERE 1=1`
 
 	args := []interface{}{}
@@ -817,6 +958,9 @@ func ExportTransactions(c *gin.Context) {
 	}
 
 	query += ` ORDER BY t.transaction_date DESC`
+
+	// Add user_id to args
+	args = append([]interface{}{userID}, args...)
 
 	rows, err := db.Query(query, args...)
 	if err != nil {
@@ -1188,10 +1332,11 @@ func ShowGraphs(c *gin.Context) {
 	var expenseData []map[string]interface{}
 
 	incomeRows, err := db.Query(`
-		SELECT YEAR(transaction_date) as year, MONTH(transaction_date) as month, SUM(amount) as total
-		FROM transactions
-		WHERE type_id = 1 AND created_by = ?
-		GROUP BY YEAR(transaction_date), MONTH(transaction_date)
+		SELECT YEAR(t.transaction_date) as year, MONTH(t.transaction_date) as month, SUM(t.amount) as total
+		FROM transactions t
+		JOIN user_accounts ua ON ua.account_id = t.account_id AND ua.user_id = ?
+		WHERE t.type_id = 1
+		GROUP BY YEAR(t.transaction_date), MONTH(t.transaction_date)
 		ORDER BY year, month`, userID)
 	if err == nil {
 		defer incomeRows.Close()
@@ -1207,10 +1352,11 @@ func ShowGraphs(c *gin.Context) {
 	}
 
 	expenseRows, err := db.Query(`
-		SELECT YEAR(transaction_date) as year, MONTH(transaction_date) as month, SUM(amount) as total
-		FROM transactions
-		WHERE type_id = 2 AND created_by = ?
-		GROUP BY YEAR(transaction_date), MONTH(transaction_date)
+		SELECT YEAR(t.transaction_date) as year, MONTH(t.transaction_date) as month, SUM(t.amount) as total
+		FROM transactions t
+		JOIN user_accounts ua ON ua.account_id = t.account_id AND ua.user_id = ?
+		WHERE t.type_id = 2
+		GROUP BY YEAR(t.transaction_date), MONTH(t.transaction_date)
 		ORDER BY year, month`, userID)
 	if err == nil {
 		defer expenseRows.Close()
@@ -1231,7 +1377,8 @@ func ShowGraphs(c *gin.Context) {
 		SELECT c.name, SUM(t.amount) as total
 		FROM transactions t
 		JOIN categories c ON t.category_id = c.id
-		WHERE t.type_id = 1 AND t.created_by = ?
+		JOIN user_accounts ua ON ua.account_id = t.account_id AND ua.user_id = ?
+		WHERE t.type_id = 1
 		GROUP BY c.id, c.name
 		ORDER BY total DESC`, userID)
 	if err == nil {
@@ -1253,7 +1400,8 @@ func ShowGraphs(c *gin.Context) {
 		SELECT c.name, SUM(t.amount) as total
 		FROM transactions t
 		JOIN categories c ON t.category_id = c.id
-		WHERE t.type_id = 2 AND t.created_by = ?
+		JOIN user_accounts ua ON ua.account_id = t.account_id AND ua.user_id = ?
+		WHERE t.type_id = 2
 		GROUP BY c.id, c.name
 		ORDER BY total DESC`, userID)
 	if err == nil {
