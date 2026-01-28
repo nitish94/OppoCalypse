@@ -1,0 +1,38 @@
+{{define "admin_users.tmpl"}}
+{{template "base.tmpl" .}}
+<div class="container">
+    <h1>Manage Users</h1>
+    <a href="/admin/users/new" class="btn">Add New User</a>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Username</th>
+                <th>Role</th>
+                <th>Created At</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .users}}
+            <tr>
+                <td>{{.ID}}</td>
+                <td>{{.UserName}}</td>
+                <td>{{.Role}}</td>
+                <td>{{.CreatedAt.Format "2006-01-02 15:04:05"}}</td>
+                <td>
+                    <a href="/admin/users/{{.ID}}/edit">Edit</a> |
+                    <form action="/admin/users/{{.ID}}/delete" method="POST" style="display:inline;">
+                        <button type="submit" onclick="return confirm('Are you sure?')">Delete</button>
+                    </form>
+                    <form action="/admin/users/{{.ID}}/reset-pin" method="POST" style="display:inline;">
+                        <input type="text" name="new_pin" placeholder="New PIN" maxlength="4" pattern="\d{4}" required>
+                        <button type="submit">Reset PIN</button>
+                    </form>
+                </td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+{{end}}

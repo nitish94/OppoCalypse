@@ -4,6 +4,8 @@ import (
 	"OppoCalypse/internal/config"
 	"OppoCalypse/internal/models"
 	"database/sql"
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -49,8 +51,9 @@ func Login(c *gin.Context) {
 		return
 	}
 
+	username := c.PostForm("username")
 	pin := c.PostForm("pin")
-	fmt.Printf("Login attempt with PIN: %s\n", pin)
+	fmt.Printf("Login attempt with Username: %s, PIN: %s\n", username, pin)
 
 	if len(pin) != 4 {
 		c.HTML(http.StatusOK, "login.tmpl", gin.H{
@@ -74,15 +77,16 @@ func Login(c *gin.Context) {
 	fmt.Println("Database connection successful.")
 
 	var userID int
-	var username string
+	var userName string
+	var role string
 	fmt.Println("Running user query...")
-	err = db.QueryRow("SELECT id, user_name FROM users WHERE pin = ?", pin).Scan(&userID, &username)
-	fmt.Printf("Query result: err=%v, userID=%v, username=%v\n", err, userID, username)
+	err = db.QueryRow("SELECT id, user_name, role FROM users WHERE user_name = ? AND pin = ?", username, pin).Scan(&userID, &userName, &role)
+	fmt.Printf("Query result: err=%v, userID=%v, username=%v, role=%v\n", err, userID, userName, role)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			fmt.Printf("No user found with PIN: %s\n", pin)
+			fmt.Printf("No user found with Username: %s, PIN: %s\n", username, pin)
 			c.HTML(http.StatusOK, "login.tmpl", gin.H{
-				"error":   "Invalid PIN",
+				"error":   "Invalid username or PIN",
 				"hideNav": true,
 			})
 		} else {
@@ -97,7 +101,8 @@ func Login(c *gin.Context) {
 
 	// Set session values
 	session.Set("user", userID)
-	session.Set("username", username)
+	session.Set("username", userName)
+	session.Set("role", role)
 
 	// Save the session
 	if err := session.Save(); err != nil {
@@ -132,6 +137,7 @@ func Logout(c *gin.Context) {
 func GetTransactions(c *gin.Context) {
 	session := sessions.Default(c)
 	userID := session.Get("user")
+	role := session.Get("role")
 	if userID == nil {
 		c.Redirect(http.StatusFound, "/login")
 		return
@@ -317,6 +323,7 @@ func GetTransactions(c *gin.Context) {
 		"transactions": transactions,
 		"username":     username,
 		"user":         userID,
+		"role":         role,
 		"hideNav":      false,
 		"accounts":     accounts,
 		"years":        years,
@@ -415,6 +422,14 @@ func CreateTransaction(c *gin.Context) {
 	}
 	defer db.Close()
 
+	// Start transaction
+	tx, err := db.Begin()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error starting transaction")
+		return
+	}
+	defer tx.Rollback()
+
 	// Parse common fields
 	amount, _ := strconv.ParseFloat(c.PostForm("amount"), 64)
 	typeID, _ := strconv.Atoi(c.PostForm("type_id"))
@@ -480,7 +495,7 @@ func CreateTransaction(c *gin.Context) {
 	}
 
 	// Insert the transaction
-	_, err = db.Exec(`
+	_, err = tx.Exec(`
 		INSERT INTO transactions 
 		(type_id, amount, account_id, transaction_date, from_account_id, to_account_id, category_id, remarks, created_by) 
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, 
@@ -489,6 +504,12 @@ func CreateTransaction(c *gin.Context) {
 	if err != nil {
 		fmt.Println("Error creating transaction:", err)
 		c.String(http.StatusInternalServerError, "Error creating transaction")
+		return
+	}
+
+	// Commit transaction
+	if err = tx.Commit(); err != nil {
+		c.String(http.StatusInternalServerError, "Error committing transaction")
 		return
 	}
 
@@ -508,4 +529,761 @@ func UpdateTransaction(c *gin.Context) {
 // DeleteTransaction deletes a transaction
 func DeleteTransaction(c *gin.Context) {
 	// Implementation for deleting a transaction
+}
+
+// Admin Handlers
+
+// ListUsers displays a list of all users (admin only)
+func ListUsers(c *gin.Context) {
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"error":   "Database connection error",
+			"hideNav": false,
+		})
+		return
+	}
+	defer db.Close()
+
+	rows, err := db.Query("SELECT id, user_name, role, created_at FROM users ORDER BY id")
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"error":   "Error fetching users",
+			"hideNav": false,
+		})
+		return
+	}
+	defer rows.Close()
+
+	var users []models.User
+	for rows.Next() {
+		var u models.User
+		if err := rows.Scan(&u.ID, &u.UserName, &u.Role, &u.CreatedAt); err != nil {
+			continue
+		}
+		users = append(users, u)
+	}
+
+	c.HTML(http.StatusOK, "admin_users.tmpl", gin.H{
+		"title":   "Manage Users - OppoCalypse",
+		"users":   users,
+		"hideNav": false,
+	})
+}
+
+// NewUserForm displays the form to create a new user
+func NewUserForm(c *gin.Context) {
+	c.HTML(http.StatusOK, "admin_user_form.tmpl", gin.H{
+		"title":   "Add New User - OppoCalypse",
+		"action":  "/admin/users",
+		"hideNav": false,
+	})
+}
+
+// CreateUser creates a new user
+func CreateUser(c *gin.Context) {
+	userName := c.PostForm("user_name")
+	pin := c.PostForm("pin")
+	role := c.PostForm("role")
+
+	if role == "" {
+		role = "user"
+	}
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Database error")
+		return
+	}
+	defer db.Close()
+
+	_, err = db.Exec("INSERT INTO users (user_name, pin, role) VALUES (?, ?, ?)", userName, pin, role)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error creating user")
+		return
+	}
+
+	c.Redirect(http.StatusFound, "/admin/users")
+}
+
+// EditUserForm displays the form to edit a user
+func EditUserForm(c *gin.Context) {
+	id := c.Param("id")
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"error":   "Database error",
+			"hideNav": false,
+		})
+		return
+	}
+	defer db.Close()
+
+	var u models.User
+	err = db.QueryRow("SELECT id, user_name, role FROM users WHERE id = ?", id).Scan(&u.ID, &u.UserName, &u.Role)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"error":   "User not found",
+			"hideNav": false,
+		})
+		return
+	}
+
+	c.HTML(http.StatusOK, "admin_user_form.tmpl", gin.H{
+		"title":   "Edit User - OppoCalypse",
+		"user":    u,
+		"action":  "/admin/users/" + id,
+		"hideNav": false,
+	})
+}
+
+// UpdateUser updates a user
+func UpdateUser(c *gin.Context) {
+	id := c.Param("id")
+	userName := c.PostForm("user_name")
+	role := c.PostForm("role")
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Database error")
+		return
+	}
+	defer db.Close()
+
+	_, err = db.Exec("UPDATE users SET user_name = ?, role = ? WHERE id = ?", userName, role, id)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error updating user")
+		return
+	}
+
+	c.Redirect(http.StatusFound, "/admin/users")
+}
+
+// DeleteUser deletes a user
+func DeleteUser(c *gin.Context) {
+	id := c.Param("id")
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Database error")
+		return
+	}
+	defer db.Close()
+
+	_, err = db.Exec("DELETE FROM users WHERE id = ?", id)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error deleting user")
+		return
+	}
+
+	c.Redirect(http.StatusFound, "/admin/users")
+}
+
+// ResetUserPIN resets a user's PIN
+func ResetUserPIN(c *gin.Context) {
+	id := c.Param("id")
+	newPIN := c.PostForm("new_pin")
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Database error")
+		return
+	}
+	defer db.Close()
+
+	_, err = db.Exec("UPDATE users SET pin = ? WHERE id = ?", newPIN, id)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error resetting PIN")
+		return
+	}
+
+	c.Redirect(http.StatusFound, "/admin/users")
+}
+
+// ShowExportPage displays the export form
+func ShowExportPage(c *gin.Context) {
+	session := sessions.Default(c)
+	userID := session.Get("user")
+	if userID == nil {
+		c.Redirect(http.StatusFound, "/login")
+		return
+	}
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"error":   "Database connection error",
+			"hideNav": false,
+		})
+		return
+	}
+	defer db.Close()
+
+	// Get accounts
+	accounts := []models.Account{}
+	accountRows, err := db.Query("SELECT id, name FROM accounts ORDER BY name")
+	if err == nil {
+		defer accountRows.Close()
+		for accountRows.Next() {
+			var acc models.Account
+			if err := accountRows.Scan(&acc.ID, &acc.Name); err == nil {
+				accounts = append(accounts, acc)
+			}
+		}
+	}
+
+	// Get categories
+	categories := []models.Category{}
+	catRows, err := db.Query("SELECT id, name FROM categories ORDER BY name")
+	if err == nil {
+		defer catRows.Close()
+		for catRows.Next() {
+			var cat models.Category
+			if err := catRows.Scan(&cat.ID, &cat.Name); err == nil {
+				categories = append(categories, cat)
+			}
+		}
+	}
+
+	c.HTML(http.StatusOK, "export.tmpl", gin.H{
+		"title":      "Export Transactions - OppoCalypse",
+		"accounts":   accounts,
+		"categories": categories,
+		"hideNav":    false,
+	})
+}
+
+// ExportTransactions exports transactions to CSV based on filters
+func ExportTransactions(c *gin.Context) {
+	session := sessions.Default(c)
+	userID := session.Get("user")
+	if userID == nil {
+		c.Redirect(http.StatusFound, "/login")
+		return
+	}
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Database error")
+		return
+	}
+	defer db.Close()
+
+	// Parse filters
+	accountIDStr := c.PostForm("account_id")
+	categoryIDStr := c.PostForm("category_id")
+	fromDate := c.PostForm("from_date")
+	toDate := c.PostForm("to_date")
+
+	query := `
+		SELECT t.id, t.type_id, t.amount, t.account_id, t.transaction_date, t.category_id, 
+		COALESCE(c.name, '') as category_name, t.remarks, t.created_at, 
+		a.name as account_name, 
+		from_a.name as from_account_name, 
+		to_a.name as to_account_name,
+		t.from_account_id, t.to_account_id
+		FROM transactions t
+		LEFT JOIN categories c ON t.category_id = c.id
+		LEFT JOIN accounts a ON t.account_id = a.id
+		LEFT JOIN accounts from_a ON t.from_account_id = from_a.id
+		LEFT JOIN accounts to_a ON t.to_account_id = to_a.id
+		WHERE 1=1`
+
+	args := []interface{}{}
+
+	if accountIDStr != "" {
+		accountID, err := strconv.Atoi(accountIDStr)
+		if err == nil {
+			query += ` AND (t.account_id = ? OR t.from_account_id = ? OR t.to_account_id = ?)`
+			args = append(args, accountID, accountID, accountID)
+		}
+	}
+
+	if categoryIDStr != "" {
+		categoryID, err := strconv.Atoi(categoryIDStr)
+		if err == nil {
+			query += ` AND t.category_id = ?`
+			args = append(args, categoryID)
+		}
+	}
+
+	if fromDate != "" {
+		query += ` AND t.transaction_date >= ?`
+		args = append(args, fromDate)
+	}
+
+	if toDate != "" {
+		query += ` AND t.transaction_date <= ?`
+		args = append(args, toDate)
+	}
+
+	query += ` ORDER BY t.transaction_date DESC`
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Query error")
+		return
+	}
+	defer rows.Close()
+
+	// Set headers for CSV download
+	c.Header("Content-Type", "text/csv")
+	c.Header("Content-Disposition", "attachment; filename=transactions.csv")
+
+	// Write CSV
+	writer := csv.NewWriter(c.Writer)
+	defer writer.Flush()
+
+	// Header
+	writer.Write([]string{"ID", "Type", "Amount", "Account", "Date", "Category", "Remarks", "From Account", "To Account", "Created At"})
+
+	for rows.Next() {
+		var t models.Transaction
+		var categoryName, accountName, fromAccountName, toAccountName sql.NullString
+		var fromAccountID, toAccountID sql.NullInt64
+		if err := rows.Scan(
+			&t.ID, &t.TypeID, &t.Amount, &t.AccountID, &t.TransactionDate,
+			&t.CategoryID, &categoryName, &t.Remarks, &t.CreatedAt,
+			&accountName, &fromAccountName, &toAccountName,
+			&fromAccountID, &toAccountID); err != nil {
+			continue
+		}
+
+		typeStr := ""
+		switch t.TypeID {
+		case 1:
+			typeStr = "Income"
+		case 2:
+			typeStr = "Expense"
+		case 3:
+			typeStr = "Investment"
+		case 4:
+			typeStr = "Loan Payment"
+		case 5:
+			typeStr = "Transfer"
+		case 6:
+			typeStr = "Correction"
+		}
+
+		catName := ""
+		if categoryName.Valid {
+			catName = categoryName.String
+		}
+
+		accName := ""
+		if accountName.Valid {
+			accName = accountName.String
+		}
+
+		fromAcc := ""
+		if fromAccountName.Valid {
+			fromAcc = fromAccountName.String
+		}
+
+		toAcc := ""
+		if toAccountName.Valid {
+			toAcc = toAccountName.String
+		}
+
+		remarks := ""
+		if t.Remarks != nil {
+			remarks = *t.Remarks
+		}
+
+		writer.Write([]string{
+			strconv.Itoa(t.ID),
+			typeStr,
+			fmt.Sprintf("%.2f", t.Amount),
+			accName,
+			t.TransactionDate.Format("2006-01-02"),
+			catName,
+			remarks,
+			fromAcc,
+			toAcc,
+			t.CreatedAt.Format("2006-01-02 15:04:05"),
+		})
+	}
+}
+
+// Budget Handlers
+
+// ListBudgets displays a list of budgets
+func ListBudgets(c *gin.Context) {
+	session := sessions.Default(c)
+	userID := session.Get("user")
+	if userID == nil {
+		c.Redirect(http.StatusFound, "/login")
+		return
+	}
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"error":   "Database connection error",
+			"hideNav": false,
+		})
+		return
+	}
+	defer db.Close()
+
+	rows, err := db.Query(`
+		SELECT b.id, b.user_id, b.category_id, b.amount, b.month, b.year, b.created_at, b.updated_at, c.name as category_name
+		FROM budgets b
+		LEFT JOIN categories c ON b.category_id = c.id
+		WHERE b.user_id = ?
+		ORDER BY b.year DESC, b.month DESC`, userID)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"error":   "Error fetching budgets",
+			"hideNav": false,
+		})
+		return
+	}
+	defer rows.Close()
+
+	var budgets []models.Budget
+	for rows.Next() {
+		var b models.Budget
+		var catName sql.NullString
+		if err := rows.Scan(&b.ID, &b.UserID, &b.CategoryID, &b.Amount, &b.Month, &b.Year, &b.CreatedAt, &b.UpdatedAt, &catName); err != nil {
+			continue
+		}
+		if catName.Valid {
+			b.Category = &models.Category{Name: catName.String}
+		}
+		budgets = append(budgets, b)
+	}
+
+	c.HTML(http.StatusOK, "budgets.tmpl", gin.H{
+		"title":   "Budgets - OppoCalypse",
+		"budgets": budgets,
+		"hideNav": false,
+	})
+}
+
+// NewBudgetForm displays the form to create a new budget
+func NewBudgetForm(c *gin.Context) {
+	session := sessions.Default(c)
+	userID := session.Get("user")
+	if userID == nil {
+		c.Redirect(http.StatusFound, "/login")
+		return
+	}
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"error":   "Database error",
+			"hideNav": false,
+		})
+		return
+	}
+	defer db.Close()
+
+	categories := []models.Category{}
+	catRows, err := db.Query("SELECT id, name FROM categories ORDER BY name")
+	if err == nil {
+		defer catRows.Close()
+		for catRows.Next() {
+			var cat models.Category
+			if err := catRows.Scan(&cat.ID, &cat.Name); err == nil {
+				categories = append(categories, cat)
+			}
+		}
+	}
+
+	months := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+
+	c.HTML(http.StatusOK, "budget_form.tmpl", gin.H{
+		"title":      "New Budget - OppoCalypse",
+		"action":     "/budgets",
+		"categories": categories,
+		"months":     months,
+		"now":        time.Now(),
+		"hideNav":    false,
+	})
+}
+
+// CreateBudget creates a new budget
+func CreateBudget(c *gin.Context) {
+	session := sessions.Default(c)
+	userID, ok := session.Get("user").(int)
+	if !ok {
+		c.Redirect(http.StatusFound, "/login")
+		return
+	}
+
+	categoryIDStr := c.PostForm("category_id")
+	amount, _ := strconv.ParseFloat(c.PostForm("amount"), 64)
+	month, _ := strconv.Atoi(c.PostForm("month"))
+	year, _ := strconv.Atoi(c.PostForm("year"))
+
+	var categoryID sql.NullInt64
+	if categoryIDStr != "" {
+		id, err := strconv.Atoi(categoryIDStr)
+		if err == nil {
+			categoryID = sql.NullInt64{Int64: int64(id), Valid: true}
+		}
+	}
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Database error")
+		return
+	}
+	defer db.Close()
+
+	_, err = db.Exec("INSERT INTO budgets (user_id, category_id, amount, month, year) VALUES (?, ?, ?, ?, ?)",
+		userID, categoryID, amount, month, year)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error creating budget")
+		return
+	}
+
+	c.Redirect(http.StatusFound, "/budgets")
+}
+
+// EditBudgetForm displays the form to edit a budget
+func EditBudgetForm(c *gin.Context) {
+	id := c.Param("id")
+	session := sessions.Default(c)
+	userID := session.Get("user")
+	if userID == nil {
+		c.Redirect(http.StatusFound, "/login")
+		return
+	}
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"error":   "Database error",
+			"hideNav": false,
+		})
+		return
+	}
+	defer db.Close()
+
+	var b models.Budget
+	err = db.QueryRow("SELECT id, user_id, category_id, amount, month, year FROM budgets WHERE id = ? AND user_id = ?", id, userID).Scan(
+		&b.ID, &b.UserID, &b.CategoryID, &b.Amount, &b.Month, &b.Year)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"error":   "Budget not found",
+			"hideNav": false,
+		})
+		return
+	}
+
+	categories := []models.Category{}
+	catRows, err := db.Query("SELECT id, name FROM categories ORDER BY name")
+	if err == nil {
+		defer catRows.Close()
+		for catRows.Next() {
+			var cat models.Category
+			if err := catRows.Scan(&cat.ID, &cat.Name); err == nil {
+				categories = append(categories, cat)
+			}
+		}
+	}
+
+	months := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+
+	c.HTML(http.StatusOK, "budget_form.tmpl", gin.H{
+		"title":      "Edit Budget - OppoCalypse",
+		"budget":     b,
+		"action":     "/budgets/" + id,
+		"categories": categories,
+		"months":     months,
+		"now":        time.Now(),
+		"hideNav":    false,
+	})
+}
+
+// UpdateBudget updates a budget
+func UpdateBudget(c *gin.Context) {
+	id := c.Param("id")
+	session := sessions.Default(c)
+	userID, ok := session.Get("user").(int)
+	if !ok {
+		c.Redirect(http.StatusFound, "/login")
+		return
+	}
+
+	categoryIDStr := c.PostForm("category_id")
+	amount, _ := strconv.ParseFloat(c.PostForm("amount"), 64)
+	month, _ := strconv.Atoi(c.PostForm("month"))
+	year, _ := strconv.Atoi(c.PostForm("year"))
+
+	var categoryID sql.NullInt64
+	if categoryIDStr != "" {
+		id, err := strconv.Atoi(categoryIDStr)
+		if err == nil {
+			categoryID = sql.NullInt64{Int64: int64(id), Valid: true}
+		}
+	}
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Database error")
+		return
+	}
+	defer db.Close()
+
+	_, err = db.Exec("UPDATE budgets SET category_id = ?, amount = ?, month = ?, year = ? WHERE id = ? AND user_id = ?",
+		categoryID, amount, month, year, id, userID)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error updating budget")
+		return
+	}
+
+	c.Redirect(http.StatusFound, "/budgets")
+}
+
+// DeleteBudget deletes a budget
+func DeleteBudget(c *gin.Context) {
+	id := c.Param("id")
+	session := sessions.Default(c)
+	userID, ok := session.Get("user").(int)
+	if !ok {
+		c.Redirect(http.StatusFound, "/login")
+		return
+	}
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Database error")
+		return
+	}
+	defer db.Close()
+
+	_, err = db.Exec("DELETE FROM budgets WHERE id = ? AND user_id = ?", id, userID)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error deleting budget")
+		return
+	}
+
+	c.Redirect(http.StatusFound, "/budgets")
+}
+
+// ShowGraphs displays graphs
+func ShowGraphs(c *gin.Context) {
+	session := sessions.Default(c)
+	userID := session.Get("user")
+	if userID == nil {
+		c.Redirect(http.StatusFound, "/login")
+		return
+	}
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"error":   "Database connection error",
+			"hideNav": false,
+		})
+		return
+	}
+	defer db.Close()
+
+	// Data for line/bar chart: income and expense by month
+	var incomeData []map[string]interface{}
+	var expenseData []map[string]interface{}
+
+	incomeRows, err := db.Query(`
+		SELECT YEAR(transaction_date) as year, MONTH(transaction_date) as month, SUM(amount) as total
+		FROM transactions
+		WHERE type_id = 1 AND created_by = ?
+		GROUP BY YEAR(transaction_date), MONTH(transaction_date)
+		ORDER BY year, month`, userID)
+	if err == nil {
+		defer incomeRows.Close()
+		for incomeRows.Next() {
+			var year, month int
+			var total float64
+			incomeRows.Scan(&year, &month, &total)
+			incomeData = append(incomeData, map[string]interface{}{
+				"label": fmt.Sprintf("%d-%02d", year, month),
+				"value": total,
+			})
+		}
+	}
+
+	expenseRows, err := db.Query(`
+		SELECT YEAR(transaction_date) as year, MONTH(transaction_date) as month, SUM(amount) as total
+		FROM transactions
+		WHERE type_id = 2 AND created_by = ?
+		GROUP BY YEAR(transaction_date), MONTH(transaction_date)
+		ORDER BY year, month`, userID)
+	if err == nil {
+		defer expenseRows.Close()
+		for expenseRows.Next() {
+			var year, month int
+			var total float64
+			expenseRows.Scan(&year, &month, &total)
+			expenseData = append(expenseData, map[string]interface{}{
+				"label": fmt.Sprintf("%d-%02d", year, month),
+				"value": total,
+			})
+		}
+	}
+
+	// Data for pie charts: income by category
+	var incomeCatData []map[string]interface{}
+	incomeCatRows, err := db.Query(`
+		SELECT c.name, SUM(t.amount) as total
+		FROM transactions t
+		JOIN categories c ON t.category_id = c.id
+		WHERE t.type_id = 1 AND t.created_by = ?
+		GROUP BY c.id, c.name
+		ORDER BY total DESC`, userID)
+	if err == nil {
+		defer incomeCatRows.Close()
+		for incomeCatRows.Next() {
+			var name string
+			var total float64
+			incomeCatRows.Scan(&name, &total)
+			incomeCatData = append(incomeCatData, map[string]interface{}{
+				"label": name,
+				"value": total,
+			})
+		}
+	}
+
+	// Expense by category
+	var expenseCatData []map[string]interface{}
+	expenseCatRows, err := db.Query(`
+		SELECT c.name, SUM(t.amount) as total
+		FROM transactions t
+		JOIN categories c ON t.category_id = c.id
+		WHERE t.type_id = 2 AND t.created_by = ?
+		GROUP BY c.id, c.name
+		ORDER BY total DESC`, userID)
+	if err == nil {
+		defer expenseCatRows.Close()
+		for expenseCatRows.Next() {
+			var name string
+			var total float64
+			expenseCatRows.Scan(&name, &total)
+			expenseCatData = append(expenseCatData, map[string]interface{}{
+				"label": name,
+				"value": total,
+			})
+		}
+	}
+
+	incomeDataJSON, _ := json.Marshal(incomeData)
+	expenseDataJSON, _ := json.Marshal(expenseData)
+	incomeCatDataJSON, _ := json.Marshal(incomeCatData)
+	expenseCatDataJSON, _ := json.Marshal(expenseCatData)
+
+	c.HTML(http.StatusOK, "graphs.tmpl", gin.H{
+		"title":             "Graphs - OppoCalypse",
+		"incomeData":        incomeData,
+		"expenseData":       expenseData,
+		"incomeCatData":     incomeCatData,
+		"expenseCatData":    expenseCatData,
+		"incomeDataJSON":    string(incomeDataJSON),
+		"expenseDataJSON":   string(expenseDataJSON),
+		"incomeCatDataJSON": string(incomeCatDataJSON),
+		"expenseCatDataJSON": string(expenseCatDataJSON),
+		"hideNav":           false,
+	})
 }

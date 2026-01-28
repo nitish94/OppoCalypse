@@ -66,7 +66,9 @@ import "time"
 
 type User struct {
 	ID        int       `json:"id"`
+	UserName  string    `json:"user_name"`
 	Pin       string    `json:"pin"`
+	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -76,6 +78,19 @@ type TransactionFilter struct {
 	Month     string `json:"month"`
 	Year      string `json:"year"`
 	TypeID    string `json:"type_id"`
+}
+
+// Budget represents the budgets table
+type Budget struct {
+	ID         int       `json:"id"`
+	UserID     int       `json:"user_id"`
+	CategoryID *int      `json:"category_id"`
+	Amount     float64   `json:"amount"`
+	Month      int       `json:"month"`
+	Year       int       `json:"year"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	Category   *Category `json:"category"`
 }
 
 // TransactionType represents the transaction_types table

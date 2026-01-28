@@ -1,0 +1,35 @@
+{{define "export.tmpl"}}
+{{template "base.tmpl" .}}
+<div class="container">
+    <h1>Export Transactions</h1>
+    <form action="/export" method="POST">
+        <div>
+            <label for="account_id">Account (optional)</label>
+            <select id="account_id" name="account_id">
+                <option value="">All Accounts</option>
+                {{range .accounts}}
+                <option value="{{.ID}}">{{.Name}}</option>
+                {{end}}
+            </select>
+        </div>
+        <div>
+            <label for="category_id">Category (optional)</label>
+            <select id="category_id" name="category_id">
+                <option value="">All Categories</option>
+                {{range .categories}}
+                <option value="{{.ID}}">{{.Name}}</option>
+                {{end}}
+            </select>
+        </div>
+        <div>
+            <label for="from_date">From Date (optional)</label>
+            <input type="date" id="from_date" name="from_date">
+        </div>
+        <div>
+            <label for="to_date">To Date (optional)</label>
+            <input type="date" id="to_date" name="to_date">
+        </div>
+        <button type="submit" class="btn">Export to CSV</button>
+    </form>
+</div>
+{{end}}

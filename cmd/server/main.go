@@ -1,6 +1,7 @@
 package main
 
 import (
+	"OppoCalypse/internal/middleware"
 	"OppoCalypse/internal/routes"
 	"fmt"
 	"log"
@@ -33,6 +34,9 @@ func main() {
 	// Apply the session middleware
 	router.Use(sessionMiddleware)
 
+	// Apply logging middleware
+	router.Use(middleware.Logger())
+
 	// Load HTML templates
 	router.Static("/static", "./static")
 	router.LoadHTMLGlob("templates/*.tmpl")
@@ -41,7 +45,7 @@ func main() {
 	routes.SetupRoutes(router)
 
 	// Start the server
-	port := "8081"
+	port := "5000"
 	fmt.Printf("Server is running on http://localhost:%s\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, router))
 }

@@ -1,0 +1,26 @@
+{{define "admin_user_form.tmpl"}}
+{{template "base.tmpl" .}}
+<div class="container">
+    <h1>{{if .user}}Edit User{{else}}Add New User{{end}}</h1>
+    <form action="{{.action}}" method="POST">
+        <div>
+            <label for="user_name">Username</label>
+            <input type="text" id="user_name" name="user_name" value="{{if .user}}{{.user.UserName}}{{end}}" required>
+        </div>
+        {{if not .user}}
+        <div>
+            <label for="pin">PIN</label>
+            <input type="password" id="pin" name="pin" maxlength="4" pattern="\d{4}" required>
+        </div>
+        {{end}}
+        <div>
+            <label for="role">Role</label>
+            <select id="role" name="role">
+                <option value="user" {{if eq .user.Role "user"}}selected{{end}}>User</option>
+                <option value="admin" {{if eq .user.Role "admin"}}selected{{end}}>Admin</option>
+            </select>
+        </div>
+        <button type="submit" class="btn">{{if .user}}Update{{else}}Create{{end}} User</button>
+    </form>
+</div>
+{{end}}
