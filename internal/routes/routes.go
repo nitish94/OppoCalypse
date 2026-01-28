@@ -30,6 +30,8 @@ func SetupRoutes(router *gin.Engine) {
 	auth.GET("/budgets/:id/edit", handlers.EditBudgetForm)
 	auth.POST("/budgets/:id", handlers.UpdateBudget)
 	auth.POST("/budgets/:id/delete", handlers.DeleteBudget)
+	auth.GET("/accounts/new", handlers.NewAccountForm)
+	auth.POST("/accounts", handlers.CreateAccount)
 	auth.GET("/graphs", handlers.ShowGraphs)
 		auth.POST("/logout", handlers.Logout)
 	}
@@ -47,6 +49,8 @@ func SetupRoutes(router *gin.Engine) {
 		admin.POST("/users/:id/delete", handlers.DeleteUser)
 		admin.POST("/users/:id/reset-pin", handlers.ResetUserPIN)
 	admin.GET("/accounts", handlers.ListAccounts)
+	admin.GET("/accounts/new", handlers.NewAdminAccountForm)
+	admin.POST("/accounts", handlers.CreateAdminAccount)
 	admin.POST("/accounts/assign", handlers.AssignAccountUsers)
 	}
 }

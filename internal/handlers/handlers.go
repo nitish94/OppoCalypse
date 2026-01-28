@@ -345,6 +345,7 @@ func GetTransactions(c *gin.Context) {
 func NewTransactionForm(c *gin.Context) {
 	session := sessions.Default(c)
 	userID := session.Get("user")
+	role := session.Get("role")
 	if userID == nil {
 		c.Redirect(http.StatusFound, "/login")
 		return
@@ -414,6 +415,7 @@ func NewTransactionForm(c *gin.Context) {
 		"categories": categories,
 		"accounts":   accounts,
 		"user":       userID,
+		"role":       role,
 		"hideNav":    false,
 	})
 }
@@ -547,6 +549,10 @@ func DeleteTransaction(c *gin.Context) {
 
 // ListUsers displays a list of all users (admin only)
 func ListUsers(c *gin.Context) {
+	session := sessions.Default(c)
+	userID := session.Get("user")
+	role := session.Get("role")
+
 	db, err := config.ConnectDB()
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
@@ -579,15 +585,23 @@ func ListUsers(c *gin.Context) {
 	c.HTML(http.StatusOK, "admin_users.tmpl", gin.H{
 		"title":   "Manage Users - OppoCalypse",
 		"users":   users,
+		"user":    userID,
+		"role":    role,
 		"hideNav": false,
 	})
 }
 
 // NewUserForm displays the form to create a new user
 func NewUserForm(c *gin.Context) {
+	session := sessions.Default(c)
+	userID := session.Get("user")
+	role := session.Get("role")
+
 	c.HTML(http.StatusOK, "admin_user_form.tmpl", gin.H{
 		"title":   "Add New User - OppoCalypse",
 		"action":  "/admin/users",
+		"user":    userID,
+		"role":    role,
 		"hideNav": false,
 	})
 }
@@ -620,6 +634,10 @@ func CreateUser(c *gin.Context) {
 
 // EditUserForm displays the form to edit a user
 func EditUserForm(c *gin.Context) {
+	session := sessions.Default(c)
+	userID := session.Get("user")
+	role := session.Get("role")
+
 	id := c.Param("id")
 	db, err := config.ConnectDB()
 	if err != nil {
@@ -645,6 +663,8 @@ func EditUserForm(c *gin.Context) {
 		"title":   "Edit User - OppoCalypse",
 		"user":    u,
 		"action":  "/admin/users/" + id,
+		"current_user": userID,
+		"role":    role,
 		"hideNav": false,
 	})
 }
@@ -715,6 +735,10 @@ func ResetUserPIN(c *gin.Context) {
 
 // ListAccounts displays accounts and their assigned users
 func ListAccounts(c *gin.Context) {
+	session := sessions.Default(c)
+	userID := session.Get("user")
+	role := session.Get("role")
+
 	db, err := config.ConnectDB()
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
@@ -777,6 +801,8 @@ func ListAccounts(c *gin.Context) {
 		"accounts":  accounts,
 		"users":     users,
 		"selected":  selected,
+		"user":      userID,
+		"role":      role,
 		"hideNav":   false,
 	})
 }
@@ -840,6 +866,7 @@ func AssignAccountUsers(c *gin.Context) {
 func ShowExportPage(c *gin.Context) {
 	session := sessions.Default(c)
 	userID := session.Get("user")
+	role := session.Get("role")
 	if userID == nil {
 		c.Redirect(http.StatusFound, "/login")
 		return
@@ -888,6 +915,8 @@ func ShowExportPage(c *gin.Context) {
 		"title":      "Export Transactions - OppoCalypse",
 		"accounts":   accounts,
 		"categories": categories,
+		"user":       userID,
+		"role":       role,
 		"hideNav":    false,
 	})
 }
@@ -1054,6 +1083,7 @@ func ExportTransactions(c *gin.Context) {
 func ListBudgets(c *gin.Context) {
 	session := sessions.Default(c)
 	userID := session.Get("user")
+	role := session.Get("role")
 	if userID == nil {
 		c.Redirect(http.StatusFound, "/login")
 		return
@@ -1100,6 +1130,8 @@ func ListBudgets(c *gin.Context) {
 	c.HTML(http.StatusOK, "budgets.tmpl", gin.H{
 		"title":   "Budgets - OppoCalypse",
 		"budgets": budgets,
+		"user":    userID,
+		"role":    role,
 		"hideNav": false,
 	})
 }
@@ -1108,6 +1140,7 @@ func ListBudgets(c *gin.Context) {
 func NewBudgetForm(c *gin.Context) {
 	session := sessions.Default(c)
 	userID := session.Get("user")
+	role := session.Get("role")
 	if userID == nil {
 		c.Redirect(http.StatusFound, "/login")
 		return
@@ -1142,6 +1175,8 @@ func NewBudgetForm(c *gin.Context) {
 		"action":     "/budgets",
 		"categories": categories,
 		"months":     months,
+		"user":       userID,
+		"role":       role,
 		"now":        time.Now(),
 		"hideNav":    false,
 	})
@@ -1191,6 +1226,7 @@ func EditBudgetForm(c *gin.Context) {
 	id := c.Param("id")
 	session := sessions.Default(c)
 	userID := session.Get("user")
+	role := session.Get("role")
 	if userID == nil {
 		c.Redirect(http.StatusFound, "/login")
 		return
@@ -1237,6 +1273,8 @@ func EditBudgetForm(c *gin.Context) {
 		"action":     "/budgets/" + id,
 		"categories": categories,
 		"months":     months,
+		"user":       userID,
+		"role":       role,
 		"now":        time.Now(),
 		"hideNav":    false,
 	})
@@ -1308,10 +1346,245 @@ func DeleteBudget(c *gin.Context) {
 	c.Redirect(http.StatusFound, "/budgets")
 }
 
+// Account Handlers
+
+// NewAccountForm displays the form to create a new account
+func NewAccountForm(c *gin.Context) {
+	session := sessions.Default(c)
+	userID := session.Get("user")
+	role := session.Get("role")
+	if userID == nil {
+		c.Redirect(http.StatusFound, "/login")
+		return
+	}
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"error":   "Database connection error",
+			"hideNav": false,
+		})
+		return
+	}
+	defer db.Close()
+
+	accountTypes := []models.AccountType{}
+	atRows, err := db.Query("SELECT id, name FROM account_types ORDER BY name")
+	if err == nil {
+		defer atRows.Close()
+		for atRows.Next() {
+			var at models.AccountType
+			if err := atRows.Scan(&at.ID, &at.Name); err == nil {
+				accountTypes = append(accountTypes, at)
+			}
+		}
+	}
+
+	c.HTML(http.StatusOK, "account_form.tmpl", gin.H{
+		"title":         "New Account - OppoCalypse",
+		"action":        "/accounts",
+		"account_types": accountTypes,
+		"user":          userID,
+		"role":          role,
+		"hideNav":       false,
+	})
+}
+
+// CreateAccount creates a new account and assigns to user
+func CreateAccount(c *gin.Context) {
+	session := sessions.Default(c)
+	userID, ok := session.Get("user").(int)
+	if !ok {
+		c.Redirect(http.StatusFound, "/login")
+		return
+	}
+
+	name := c.PostForm("name")
+	accountTypeIDStr := c.PostForm("account_type_id")
+	initialAmount, _ := strconv.ParseFloat(c.PostForm("initial_amount"), 64)
+	initialDate := c.PostForm("initial_date")
+	remarks := c.PostForm("remarks")
+
+	accountTypeID, err := strconv.Atoi(accountTypeIDStr)
+	if err != nil {
+		c.String(http.StatusBadRequest, "Invalid account type")
+		return
+	}
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Database error")
+		return
+	}
+	defer db.Close()
+
+	tx, err := db.Begin()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	// Insert account
+	result, err := tx.Exec(`
+		INSERT INTO accounts (name, account_type_id, initial_amount, initial_date, current_balance, remarks, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		name, accountTypeID, initialAmount, initialDate, initialAmount, remarks, userID)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error creating account")
+		return
+	}
+
+	accountID, err := result.LastInsertId()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error getting account ID")
+		return
+	}
+
+	// Assign to user
+	_, err = tx.Exec("INSERT INTO user_accounts (user_id, account_id) VALUES (?, ?)", userID, accountID)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error assigning account")
+		return
+	}
+
+	if err = tx.Commit(); err != nil {
+		c.String(http.StatusInternalServerError, "Commit error")
+		return
+	}
+
+	c.Redirect(http.StatusFound, "/")
+}
+
+// NewAdminAccountForm displays the form to create a new account (admin)
+func NewAdminAccountForm(c *gin.Context) {
+	session := sessions.Default(c)
+	userID := session.Get("user")
+	role := session.Get("role")
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"error":   "Database connection error",
+			"hideNav": false,
+		})
+		return
+	}
+	defer db.Close()
+
+	accountTypes := []models.AccountType{}
+	atRows, err := db.Query("SELECT id, name FROM account_types ORDER BY name")
+	if err == nil {
+		defer atRows.Close()
+		for atRows.Next() {
+			var at models.AccountType
+			if err := atRows.Scan(&at.ID, &at.Name); err == nil {
+				accountTypes = append(accountTypes, at)
+			}
+		}
+	}
+
+	users := []models.User{}
+	userRows, err := db.Query("SELECT id, user_name FROM users ORDER BY user_name")
+	if err == nil {
+		defer userRows.Close()
+		for userRows.Next() {
+			var u models.User
+			if err := userRows.Scan(&u.ID, &u.UserName); err == nil {
+				users = append(users, u)
+			}
+		}
+	}
+
+	c.HTML(http.StatusOK, "account_form.tmpl", gin.H{
+		"title":         "New Account - OppoCalypse",
+		"action":        "/admin/accounts",
+		"account_types": accountTypes,
+		"users":         users,
+		"user":          userID,
+		"role":          role,
+		"hideNav":       false,
+	})
+}
+
+// CreateAdminAccount creates a new account (admin can assign users)
+func CreateAdminAccount(c *gin.Context) {
+	name := c.PostForm("name")
+	accountTypeIDStr := c.PostForm("account_type_id")
+	initialAmount, _ := strconv.ParseFloat(c.PostForm("initial_amount"), 64)
+	initialDate := c.PostForm("initial_date")
+	remarks := c.PostForm("remarks")
+	userIDs := c.PostFormArray("user_ids[]")
+
+	accountTypeID, err := strconv.Atoi(accountTypeIDStr)
+	if err != nil {
+		c.String(http.StatusBadRequest, "Invalid account type")
+		return
+	}
+
+	session := sessions.Default(c)
+	adminID, ok := session.Get("user").(int)
+	if !ok {
+		c.Redirect(http.StatusFound, "/login")
+		return
+	}
+
+	db, err := config.ConnectDB()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Database error")
+		return
+	}
+	defer db.Close()
+
+	tx, err := db.Begin()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Transaction error")
+		return
+	}
+	defer tx.Rollback()
+
+	// Insert account
+	result, err := tx.Exec(`
+		INSERT INTO accounts (name, account_type_id, initial_amount, initial_date, current_balance, remarks, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		name, accountTypeID, initialAmount, initialDate, initialAmount, remarks, adminID)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error creating account")
+		return
+	}
+
+	accountID, err := result.LastInsertId()
+	if err != nil {
+		c.String(http.StatusInternalServerError, "Error getting account ID")
+		return
+	}
+
+	// Assign to selected users
+	for _, userIDStr := range userIDs {
+		userID, err := strconv.Atoi(userIDStr)
+		if err != nil {
+			continue
+		}
+		_, err = tx.Exec("INSERT INTO user_accounts (user_id, account_id) VALUES (?, ?)", userID, accountID)
+		if err != nil {
+			c.String(http.StatusInternalServerError, "Error assigning user")
+			return
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		c.String(http.StatusInternalServerError, "Commit error")
+		return
+	}
+
+	c.Redirect(http.StatusFound, "/admin/accounts")
+}
+
 // ShowGraphs displays graphs
 func ShowGraphs(c *gin.Context) {
 	session := sessions.Default(c)
 	userID := session.Get("user")
+	role := session.Get("role")
 	if userID == nil {
 		c.Redirect(http.StatusFound, "/login")
 		return
@@ -1432,6 +1705,8 @@ func ShowGraphs(c *gin.Context) {
 		"expenseDataJSON":   string(expenseDataJSON),
 		"incomeCatDataJSON": string(incomeCatDataJSON),
 		"expenseCatDataJSON": string(expenseCatDataJSON),
+		"user":              userID,
+		"role":              role,
 		"hideNav":           false,
 	})
 }
